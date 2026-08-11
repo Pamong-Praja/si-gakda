@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Wave motif divider under header */
+.pacu-wave {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 24' preserveAspectRatio='none'%3E%3Cpath d='M0 12 Q50 0 100 12 T200 12 T300 12 T400 12 T500 12 T600 12 T700 12 T800 12 T900 12 T1000 12 T1100 12 T1200 12' stroke='%23F5B041' stroke-width='2' fill='none' opacity='0.6'/%3E%3Cpath d='M0 18 Q50 8 100 18 T200 18 T300 18 T400 18 T500 18 T600 18 T700 18 T800 18 T900 18 T1000 18 T1100 18 T1200 18' stroke='%231A5276' stroke-width='1.5' fill='none' opacity='0.4'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+
+/* Subtle wave pattern for backgrounds */
+.pacu-bg-wave {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='30' viewBox='0 0 120 30'%3E%3Cpath d='M0 15 Q15 3 30 15 T60 15 T90 15 T120 15' stroke='%231A5276' stroke-width='1' fill='none' opacity='0.06'/%3E%3C/svg%3E");
+}
+
+/* Pacu Jalur boat oar SVG as small decorative element */
+.pacu-oar-icon {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M12 2 L14 6 L12 10 L10 6 Z' fill='currentColor' opacity='0.3'/%3E%3Cpath d='M12 10 L12 22' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' opacity='0.3'/%3E%3C/svg%3E");
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #C8102E;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a30d24;
+}
