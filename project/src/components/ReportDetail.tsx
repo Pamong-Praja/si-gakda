@@ -260,3 +260,4 @@ function NumberedList({ text }: { text: string | null | undefined }) {
   // 4. Jika tidak ada pola, tampilkan sebagai teks biasa
   return <p className="text-sm text-gray-700">{text}</p>;
 }
+}
