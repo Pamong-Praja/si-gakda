@@ -65,25 +65,19 @@ export function ReportDetail({ reportId, onBack }: Props) {
         <ArrowLeft className="h-4 w-4" /> Kembali ke Daftar
       </button>
 
-      {/* Header kategori */}
       <div
         className={`mb-5 overflow-hidden rounded-2xl bg-gradient-to-r ${cat?.gradient} p-5 shadow-sm`}
       >
         <div className="flex items-center gap-3">
           <span className="text-4xl">{cat?.emoji}</span>
           <div>
-            <p className="text-xs uppercase tracking-wide text-white/70">
-              Detail Laporan
-            </p>
-            <h2 className="text-lg font-bold text-white sm:text-xl">
-              {cat?.name}
-            </h2>
+            <p className="text-xs uppercase tracking-wide text-white/70">Detail Laporan</p>
+            <h2 className="text-lg font-bold text-white sm:text-xl">{cat?.name}</h2>
           </div>
         </div>
       </div>
 
       <div className="space-y-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-        {/* DASAR HUKUM — di ATAS Tanggal */}
         <DetailRow icon={<Scale className="h-4 w-4" />} label="Dasar Hukum">
           <NumberedList text={report.dasar_hukum} />
         </DetailRow>
@@ -96,17 +90,15 @@ export function ReportDetail({ reportId, onBack }: Props) {
           {report.lokasi}
         </DetailRow>
 
-        {/* PERSONEL — bernomor dengan gelar tetap muncul */}
+        {/* PERSONEL — tampilkan apa adanya */}
         <DetailRow icon={<Users className="h-4 w-4" />} label="Personel">
           <PersonelList text={report.personel} />
         </DetailRow>
 
-        {/* URAIAN — bernomor jika ada poin */}
         <DetailRow icon={<FileText className="h-4 w-4" />} label="Uraian">
           <NumberedList text={report.uraian} />
         </DetailRow>
 
-        {/* Foto galeri */}
         <div>
           <p className="mb-2 text-sm font-semibold text-gray-800">Foto</p>
           {fotos.length > 0 ? (
@@ -131,7 +123,6 @@ export function ReportDetail({ reportId, onBack }: Props) {
         </div>
       </div>
 
-      {/* Lightbox */}
       {lightbox && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
@@ -190,18 +181,13 @@ function splitLines(text: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+// 🔥 PERBAIKAN: PersonelList mempertahankan format asli
 function PersonelList({ text }: { text: string | null | undefined }) {
-  const lines = splitLines(text);
-  if (lines.length === 0) return <span className="text-sm text-gray-400">-</span>;
+  if (!text) return <span className="text-sm text-gray-400">-</span>;
   return (
-    <ol className="space-y-1">
-      {lines.map((line, i) => (
-        <li key={i} className="text-sm text-gray-700">
-          <span className="font-medium text-gray-500">{i + 1}.</span>{' '}
-          {line.replace(/^\d+[.)]\s*/, '')}
-        </li>
-      ))}
-    </ol>
+    <pre className="whitespace-pre-wrap font-sans text-sm text-gray-700">
+      {text}
+    </pre>
   );
 }
 
