@@ -57,21 +57,57 @@ export function ReportList({
     setLoading(false);
   }
 
-  async function handleDelete(id: string) {
-    if (!window.confirm('Yakin ingin menghapus laporan ini?')) return;
-    setDeletingId(id);
-    const { error } = await supabase
+ async function handleDelete(id: string) {
+  if (!window.confirm('Yakin ingin menghapus laporan ini? Data dan foto tidak dapat dikembalikan.')) return;
+  
+  setDeletingId(id);
+  
+  try {
+    // 1. Ambil daftar URL foto sebelum menghapus data
+    const { data: report, error: fetchError } = await supabase
+      .from('laporan_penindakan')
+      .select('foto_urls')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    // 2. Hapus file foto dari Storage (jika ada)
+    if (report?.foto_urls && report.foto_urls.length > 0) {
+      // Ambil nama file dari URL
+      const filePaths = report.foto_urls.map((url: string) => {
+        return url.split('/foto-laporan/')[1]; // ambil nama file
+      });
+
+      const { error: storageError } = await supabase.storage
+        .from('foto-laporan')
+        .remove(filePaths);
+
+      if (storageError) {
+        console.error('Gagal hapus foto:', storageError);
+        // Lanjutkan meskipun gagal hapus foto
+      }
+    }
+
+    // 3. Hapus data laporan dari database
+    const { error: deleteError } = await supabase
       .from('laporan_penindakan')
       .delete()
       .eq('id', id);
-    setDeletingId(null);
-    if (error) {
-      console.error(error);
-      alert('Gagal menghapus laporan: ' + error.message);
-      return;
-    }
+
+    if (deleteError) throw deleteError;
+
+    // 4. Refresh daftar laporan
     await fetchReports();
+    alert('✅ Laporan dan foto berhasil dihapus!');
+    
+  } catch (error) {
+    console.error(error);
+    alert('❌ Gagal menghapus laporan: ' + (error as Error).message);
+  } finally {
+    setDeletingId(null);
   }
+}
 
   const filtered = reports.filter((r) => {
     if (!search.trim()) return true;
