@@ -105,62 +105,100 @@ function parseWhatsApp(text: string): Parsed {
     dasar_hukum = dasarItems.map((item, i) => `${i + 1}. ${item}`).join('\n');
   }
 
-// ============================================================
-// 4. DETEKSI PERSONEL (FLEKSIBEL - GELAR TETAP MUNCUL)
-// ============================================================
-let inPersonel = false;
-const personelLines: string[] = [];
-let currentInstansi = 'Satpol PP';
+    // ============================================================
+  // 4. DETEKSI PERSONEL (PERTAHANKAN FORMAT ASLI)
+  // ============================================================
+  let inPersonel = false;
+  const personelLines: string[] = [];
+  let hasStrip = false;
 
-for (const line of lines) {
-  const trimmed = line.trim();
-  if (!trimmed) continue;
-
-  if (!inPersonel) {
-    if (/personel/i.test(trimmed)) {
-      inPersonel = true;
-      continue;
-    }
-  } else {
-    if (/^(VI|HASIL\s*KEGIATAN|KETERANGAN|VII|DEMIKIAN)/i.test(trimmed)) break;
-
-    // Deteksi instansi (contoh: "I. Satpol PP :")
-    const instansiMatch = trimmed.match(/^(?:[IVX]+\.\s*)?([A-Za-z\s]+)\s*:/);
-    if (instansiMatch) {
-      currentInstansi = instansiMatch[1].trim();
-      continue;
-    }
-
-    let cleaned = trimmed
-      .replace(/^\s*[-*•]\s*/, '')
-      .replace(/^\s*(\d+)[.)]\s*/, '')
-      .trim();
-
-    // 🔥 HAPUS BAGIAN INI — GELAR TETAP MUNCUL
-    // cleaned = cleaned
-    //   .replace(/,?\s*(?:S\.\w+\.?|M\.\w+\.?|A\.Md\.?|SST|S\.I\.P|S\.Sos\.?|S\.E\.?|S\.H\.?|S\.P\.?|M\.M\.?|M\.Si\.?|S\.Pd\.?)\s*/g, '')
-    //   .trim();
-
-    // Lewati baris yang hanya label instansi
-    if (/^(Satpol|Polres|Brimob|Polairud|BPBD|Kecamatan|Dinas|Badan|Kantor)/i.test(cleaned) && cleaned.length < 30) {
-      personelLines.push(trimmed);
-      continue;
-    }
-
-    if (cleaned.length > 2) {
-      if (currentInstansi && currentInstansi !== 'Satpol PP') {
-        personelLines.push(`${cleaned} (${currentInstansi})`);
-      } else {
-        personelLines.push(cleaned);
+  // Kumpulkan semua baris dari bagian PERSONEL
+  let tempInPersonel = false;
+  const tempLines: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (!tempInPersonel) {
+      if (/^V\.\s*PERSONEL\s*:?/i.test(trimmed) || /^PERSONEL\s*:?/i.test(trimmed)) {
+        tempInPersonel = true;
+        continue;
+      }
+    } else {
+      if (/^(VI|HASIL\s*KEGIATAN|VII|KETERANGAN|VIII|DOKUMENTASI)/i.test(trimmed)) break;
+      tempLines.push(trimmed);
+      if (/^\s*[-*•]\s*/.test(trimmed)) {
+        hasStrip = true;
       }
     }
   }
-}
 
-let personel = '';
-if (personelLines.length > 0) {
-  personel = personelLines.map((name, index) => `${index + 1}. ${name}`).join('\n');
-}
+  // Jika tidak ada strip → SKENARIO 1: Semua angka (Satpol PP saja)
+  // Jika ada strip → SKENARIO 2: Campuran (pertahankan format asli)
+  
+  if (!hasStrip) {
+    // SKENARIO 1: Hanya personel Satpol PP (nomor urut ulang 1., 2., 3.)
+    for (let i = 0; i < tempLines.length; i++) {
+      const content = tempLines[i].replace(/^\s*(\d+)[.)]\s*/, '').trim();
+      if (content) {
+        personelLines.push(`${i + 1}. ${content}`);
+      }
+    }
+  } else {
+    // SKENARIO 2: Campuran (pertahankan format: angka untuk instansi, strip untuk Satpol PP)
+    let counter = 0;
+    let isSatpolSection = false;
+    let satpolCounter = 0;
+    
+    for (const line of tempLines) {
+      // Deteksi "Satpol PP"
+      if (/^2\.\s*Satpol\s*PP/i.test(line) || /^Satpol\s*PP/i.test(line)) {
+        isSatpolSection = true;
+        satpolCounter = 0;
+        const clean = line.replace(/^\s*(\d+)[.)]\s*/, '').trim();
+        counter++;
+        personelLines.push(`${counter}. ${clean}`);
+        continue;
+      }
+
+      // Jika sedang di bagian Satpol PP
+      if (isSatpolSection) {
+        // Jika ketemu angka di awal baris (bukan "Satpol PP"), berarti sudah keluar
+        if (/^\s*(\d+)\./.test(line) && !/Satpol\s*PP/i.test(line)) {
+          isSatpolSection = false;
+          const content = line.replace(/^\s*(\d+)[.)]\s*/, '').trim();
+          if (content) {
+            counter++;
+            personelLines.push(`${counter}. ${content}`);
+          }
+          continue;
+        }
+        // Jika baris diawali strip (-) → personel Satpol PP, pertahankan strip + indentasi
+        if (/^\s*[-*•]\s*/.test(line)) {
+          const content = line.replace(/^\s*[-*•]\s*/, '').trim();
+          if (content) {
+            satpolCounter++;
+            // Strip tanpa nomor, tapi dengan indentasi 3 spasi
+            personelLines.push(`   - ${content}`);
+          }
+          continue;
+        }
+        // Jika baris tidak dikenal, lewati
+        continue;
+      }
+
+      // Untuk baris lain (bukan Satpol PP)
+      const content = line.replace(/^\s*(\d+)[.)]\s*/, '').trim();
+      if (content) {
+        counter++;
+        personelLines.push(`${counter}. ${content}`);
+      }
+    }
+  }
+
+  let personel = personelLines.join('\n');
+  if (!personel) {
+    personel = 'Tidak ada personel';
+  }
   // ============================================================
   // 5. DETEKSI URAIAN / HASIL KEGIATAN
   // ============================================================
