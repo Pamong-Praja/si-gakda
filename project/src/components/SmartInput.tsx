@@ -199,61 +199,54 @@ function parseWhatsApp(text: string): Parsed {
   if (!personel) {
     personel = 'Tidak ada personel';
   }
-  // ============================================================
-  // 5. DETEKSI URAIAN / HASIL KEGIATAN
+    // ============================================================
+  // 5. DETEKSI URAIAN (2 SKENARIO — SEPERTI PERSONEL)
   // ============================================================
   let inUraian = false;
   const uraianLines: string[] = [];
+  let hasStripUraian = false;
+  let hasNumberedSubHeadings = false;
 
-  const stopKeywords = [
-    /^VII\./i,
-    /^VIII\./i,
-    /^KETERANGAN/i,
-    /^DEMIKIAN/i,
-    /^DOKUMENTASI/i,
-    /^Wassalamu'alaikum/i,
-    /^Wassalamualaikum/i,
-  ];
-
+  let tempInUraian = false;
+  const tempUraianLines: string[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-
-    if (!inUraian) {
+    if (!tempInUraian) {
       if (/hasil\s*kegiatan/i.test(trimmed)) {
-        inUraian = true;
-        const after = trimmed.replace(/^.*?hasil\s*kegiatan\s*:?/i, '').trim();
-        if (after) uraianLines.push(after);
+        tempInUraian = true;
         continue;
       }
     } else {
-      let shouldStop = false;
-      for (const pattern of stopKeywords) {
-        if (pattern.test(trimmed)) {
-          shouldStop = true;
-          break;
-        }
+      if (/^(VII|KETERANGAN|DEMIKIAN|VIII|DOKUMENTASI|PENUTUP)/i.test(trimmed)) break;
+      tempUraianLines.push(trimmed);
+      if (/^\s*[-*•]\s*/.test(trimmed)) {
+        hasStripUraian = true;
       }
-      if (shouldStop) break;
-
-      const cleaned = trimmed
-        .replace(/^\s*(\d+)[.)]\s*/, '')
-        .replace(/^\s*[-*•▪️]\s*/, '')
-        .trim();
-
-      if (cleaned.length > 0) {
-        uraianLines.push(cleaned);
+      if (/^\s*(\d+)\.\s*[A-Z]/.test(trimmed)) {
+        hasNumberedSubHeadings = true;
       }
     }
   }
 
   let uraian = '';
-  if (uraianLines.length > 0) {
-    uraian = uraianLines.map((line, index) => `${index + 1}. ${line}`).join('\n');
-  }
 
-  return { tanggal, lokasi, personel, uraian, dasar_hukum };
-}
+  if (tempUraianLines.length === 0) {
+    uraian = '';
+  } else if (!hasStripUraian && !hasNumberedSubHeadings) {
+    // SKENARIO 1: Tidak ada strip, tidak ada sub-judul → beri nomor semua
+    const cleanLines: string[] = [];
+    for (const line of tempUraianLines) {
+      const cleaned = line.replace(/^\s*(\d+)[.)]\s*/, '').trim();
+      if (cleaned) cleanLines.push(cleaned);
+    }
+    uraian = cleanLines.map((line, i) => `${i + 1}. ${line}`).join('\n');
+  } else {
+    // SKENARIO 2: Ada strip ATAU ada sub-judul bernomor → PERTAHANKAN FORMAT ASLI
+    uraian = tempUraianLines.join('\n');
+  }
+    return { tanggal, lokasi, personel, uraian, dasar_hukum };
+}   
 // ============================================================
 // KOMPONEN SMART INPUT
 // ============================================================
