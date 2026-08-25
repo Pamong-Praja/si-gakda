@@ -192,26 +192,91 @@ function PersonelList({ text }: { text: string | null | undefined }) {
 }
 
 function NumberedList({ text }: { text: string | null | undefined }) {
-  const lines = splitLines(text);
+  if (!text) return <span className="text-sm text-gray-400">-</span>;
+
+  const lines = text.split('\n').filter(line => line.trim() !== '');
+
   if (lines.length === 0) return <span className="text-sm text-gray-400">-</span>;
-  const hasNumbers = lines.some((l) => /^\d+[.)]\s+/.test(l));
-  if (hasNumbers) {
+
+  // Cek apakah ada sub-judul bernomor (1. TEKS, 2. TEKS)
+  const hasSubHeadings = lines.some(line => /^\s*\d+\.\s*[A-Z]/.test(line));
+  const hasStrip = lines.some(line => /^\s*[-*•]\s*/.test(line));
+
+  // ============================================================
+  // SKENARIO 1: Ada SUB-JUDUL + STRIP → nested list
+  // ============================================================
+  if (hasSubHeadings && hasStrip) {
     return (
-      <ol className="space-y-1">
-        {lines.map((line, i) => (
-          <li key={i} className="text-sm text-gray-700">
-            <span className="font-medium text-gray-500">{i + 1}.</span>{' '}
-            {line.replace(/^\d+[.)]\s*/, '')}
-          </li>
-        ))}
+      <div className="space-y-1 text-sm text-gray-700">
+        {lines.map((line, index) => {
+          const trimmed = line.trim();
+
+          // Sub-judul (1. TEKS)
+          const subMatch = trimmed.match(/^(\d+)\.\s*(.+)/);
+          if (subMatch) {
+            return (
+              <div key={index} className="font-semibold text-gray-800 mt-1">
+                {subMatch[1]}. {subMatch[2]}
+              </div>
+            );
+          }
+
+          // Strip (- TEKS)
+          const stripMatch = trimmed.match(/^[-*•]\s*(.+)/);
+          if (stripMatch) {
+            return (
+              <div key={index} className="pl-6 text-gray-700">
+                - {stripMatch[1]}
+              </div>
+            );
+          }
+
+          // Teks biasa
+          return <div key={index}>{trimmed}</div>;
+        })}
+      </div>
+    );
+  }
+
+  // ============================================================
+  // SKENARIO 2: Ada SUB-JUDUL (tanpa strip) → list biasa (1., 2., 3.)
+  // ============================================================
+  if (hasSubHeadings && !hasStrip) {
+    return (
+      <ol className="list-decimal list-inside space-y-1">
+        {lines.map((line, i) => {
+          const cleaned = line.replace(/^\s*(\d+)[.)]\s*/, '').trim();
+          return (
+            <li key={i} className="text-sm text-gray-700 pl-1">
+              {cleaned}
+            </li>
+          );
+        })}
       </ol>
     );
   }
+
+  // ============================================================
+  // SKENARIO 3: Ada STRIP (tanpa sub-judul) → tampilkan apa adanya
+  // ============================================================
+  if (hasStrip) {
+    return (
+      <pre className="whitespace-pre-wrap font-sans text-sm text-gray-700">
+        {text}
+      </pre>
+    );
+  }
+
+  // ============================================================
+  // SKENARIO 4: Teks biasa → list bernomor (1., 2., 3.)
+  // ============================================================
   return (
-    <div className="space-y-1">
+    <ol className="list-decimal list-inside space-y-1">
       {lines.map((line, i) => (
-        <p key={i} className="text-sm text-gray-700">{line}</p>
+        <li key={i} className="text-sm text-gray-700 pl-1">
+          {line.trim()}
+        </li>
       ))}
-    </div>
+    </ol>
   );
 }
