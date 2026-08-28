@@ -52,4 +52,26 @@ export type Laporan = {
   bulan: number | null;
   tahun: number | null;
   created_at: string;
+  // 🔥 KOLOM BARU
+  tindakan_diambil: string | null;
+  status_tindak_lanjut: string | null;
+  no_spt?: string | null;
 };
+
+export type LaporanInput = {
+  kategori: string;
+  tanggal: string;
+  lokasi: string;
+  personel: string | null;
+  uraian: string | null;
+  dasar_hukum: string | null;
+  foto_urls: string[] | null;
+  bulan: number;
+  tahun: number;
+  // 🔥 KOLOM BARU (opsional)
+  tindakan_diambil?: string | null;
+  status_tindak_lanjut?: string | null;
+  no_spt?: string | null;
+};
+
+export type StatusLaporan = 'Selesai' | 'Diproses' | 'Ditindaklanjuti';
