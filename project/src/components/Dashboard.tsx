@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import {
   CATEGORIES,
@@ -46,6 +47,7 @@ export function Dashboard({ onSelectCategory, onOpenForm, onOpenSmart }: Props) 
   const [counts, setCounts] = useState<Counts>({});
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     void fetchCounts();
@@ -75,6 +77,122 @@ export function Dashboard({ onSelectCategory, onOpenForm, onOpenSmart }: Props) 
     setLoading(false);
   }
 
+  // 🔥 EXPORT EXCEL BULANAN (SEMUA KATEGORI)
+async function exportMonthlyExcel() {
+  setExporting(true);
+  try {
+    const { data, error } = await supabase
+      .from('laporan_penindakan')
+      .select('*')
+      .eq('bulan', month)
+      .eq('tahun', year)
+      .order('tanggal', { ascending: true });
+
+    if (error) {
+      console.error(error);
+      alert('Gagal mengambil data laporan');
+      setExporting(false);
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      alert(`Tidak ada laporan di bulan ${MONTH_NAMES[month - 1]} ${year}`);
+      setExporting(false);
+      return;
+    }
+
+    // 🔥 BUAT DATA EXCEL DENGAN ARRAY 2D
+    const excelData: any[][] = [];
+
+    // Baris 1: Judul
+    excelData.push([`REKAPAN LAPORAN KEGIATAN BIDANG GAKDA BULAN ${MONTH_NAMES[month - 1]} ${year}`]);
+
+    // Baris 2: Kosong (spasi)
+    excelData.push([]);
+
+    // Baris 3: Header
+    excelData.push([
+      'No', 'No SPT', 'Kategori', 'Dasar Hukum', 'Tanggal',
+      'Lokasi', 'Personil', 'Uraian', 'Tindakan yang Diambil',
+      'Status Tindakan', 'Foto'
+    ]);
+
+    // Baris 4 - seterusnya: Data
+    data.forEach((r, i) => {
+      excelData.push([
+        i + 1,
+        r.no_spt || '-',
+        r.kategori,
+        r.dasar_hukum || '',
+        r.tanggal,
+        r.lokasi,
+        r.personel || '',
+        r.uraian || '',
+        r.tindakan_diambil || '-',
+        r.status_tindak_lanjut || '-',
+        (r.foto_urls && r.foto_urls.length > 0) ? 'Ada foto' : 'Tidak ada',
+      ]);
+    });
+
+    // Buat worksheet dari array 2D
+    const ws = XLSX.utils.aoa_to_sheet(excelData);
+
+    // 🔥 MERGE CELL JUDUL (Gabungkan sel A1 sampai K1)
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 10 } } // A1 sampai K1 (11 kolom)
+    ];
+
+    // 🔥 LEBAR KOLOM
+    ws['!cols'] = [
+      { wch: 5 },   // No
+      { wch: 20 },  // No SPT
+      { wch: 25 },  // Kategori
+      { wch: 40 },  // Dasar Hukum
+      { wch: 15 },  // Tanggal
+      { wch: 30 },  // Lokasi
+      { wch: 30 },  // Personil
+      { wch: 50 },  // Uraian
+      { wch: 25 },  // Tindakan yang Diambil
+      { wch: 18 },  // Status Tindakan
+      { wch: 15 },  // Foto
+    ];
+
+    // 🔥 WRAP TEXT, ALIGNMENT, DAN BOLD UNTUK JUDUL
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    for (let row = range.s.r; row <= range.e.r; row++) {
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+        if (ws[cellAddress]) {
+          const alignment: any = {
+            wrapText: true,
+            vertical: 'top',
+          };
+          // 🔥 JUDUL (baris 0): center + bold
+          if (row === 0) {
+            alignment.horizontal = 'center';
+            ws[cellAddress].s = {
+              alignment,
+              font: { bold: true, size: 14 }, // 🔥 BOLD + UKURAN LEBIH BESAR
+            };
+          } else {
+            ws[cellAddress].s = { alignment };
+          }
+        }
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Laporan');
+    const fileName = `Laporan_Bulanan_${MONTH_NAMES[month - 1]}_${year}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    alert(`✅ Berhasil export ${data.length} laporan!`);
+  } catch (err) {
+    console.error(err);
+    alert('Terjadi kesalahan saat export');
+  } finally {
+    setExporting(false);
+  }
+}
   const maxCount = Math.max(1, ...CATEGORIES.map((c) => counts[c.key] ?? 0));
   const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
 
@@ -82,9 +200,7 @@ export function Dashboard({ onSelectCategory, onOpenForm, onOpenSmart }: Props) 
     <div className="mx-auto max-w-7xl px-4 py-6">
       {/* HERO SECTION */}
       <div className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-[#C8102E] via-[#a30d24] to-[#1A1A1A] shadow-2xl">
-        {/* Wave pattern overlay */}
         <div className="pacu-bg-wave absolute inset-0 opacity-30" aria-hidden />
-        {/* Decorative oar */}
         <OarIcon className="absolute right-6 top-6 h-24 w-24 text-white/10 animate-float-slow" />
         <div className="relative px-6 py-8 sm:px-10 sm:py-10">
           <div className="flex items-center gap-2">
@@ -103,7 +219,6 @@ export function Dashboard({ onSelectCategory, onOpenForm, onOpenSmart }: Props) 
             penegakan Peraturan Daerah yang tegas, profesional, dan berbudaya.
           </p>
         </div>
-        {/* Bottom wave motif */}
         <div className="pacu-wave h-3 w-full" aria-hidden />
       </div>
 
@@ -150,10 +265,18 @@ export function Dashboard({ onSelectCategory, onOpenForm, onOpenSmart }: Props) 
               ))}
             </select>
           </div>
+          {/* 🔥 TOMBOL EXPORT EXCEL BULANAN */}
+          <button
+            onClick={exportMonthlyExcel}
+            disabled={exporting || loading}
+            className="rounded-lg bg-[#1B7340] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#155730] transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {exporting ? 'Mengexport...' : '📥 Export Excel Bulanan'}
+          </button>
         </div>
       </div>
 
-      {/* Total card — gradient merah-kuning */}
+      {/* Total card */}
       <div className="mb-6 overflow-hidden rounded-2xl bg-gradient-to-r from-[#C8102E] to-[#F5B041] p-5 shadow-lg">
         <div className="flex items-center gap-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm ring-1 ring-white/30">
@@ -255,7 +378,6 @@ function CategoryCard({
       className={`group relative overflow-hidden rounded-2xl border-2 ${cat.border} bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl`}
     >
       <div className={`h-2 w-full bg-gradient-to-r ${cat.gradient}`} />
-      {/* Decorative oar in corner */}
       <OarIcon className="absolute right-3 top-4 h-8 w-8 text-gray-200 transition group-hover:text-gray-300" />
       <div className="p-5">
         <div className="flex items-start justify-between">
