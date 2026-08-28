@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { CATEGORIES } from '@/lib/categories';
 import { compressPhotos, type CompressedPhoto } from '@/lib/photo';
 import { ArrowLeft, Save, X, ImagePlus, Loader2, CheckCircle2 } from 'lucide-react';
+import { generateNoSpt } from '@/lib/noSpt';
 
 type Props = {
   onCancel: () => void;
@@ -12,17 +13,38 @@ type Props = {
 
 export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
   const [kategori, setKategori] = useState(defaultKategori ?? CATEGORIES[0].key);
-  const [tanggal, setTanggal] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10));
   const [lokasi, setLokasi] = useState('');
   const [personel, setPersonel] = useState('');
   const [uraian, setUraian] = useState('');
   const [dasarHukum, setDasarHukum] = useState('');
+  const [noSpt, setNoSpt] = useState('Memuat...');
+  const [tindakanDiambil, setTindakanDiambil] = useState('');
+  const [statusTindakLanjut, setStatusTindakLanjut] = useState('');
+  const [tindakanLainnya, setTindakanLainnya] = useState('');
   const [photos, setPhotos] = useState<CompressedPhoto[]>([]);
   const [compressing, setCompressing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 🔥 Generate No SPT dengan error handling + fallback
+  useEffect(() => {
+    let isMounted = true;
+    const tahun = new Date(tanggal).getFullYear();
+
+    generateNoSpt(tahun)
+      .then((result) => {
+        if (isMounted) setNoSpt(result);
+      })
+      .catch((err) => {
+        console.error('Gagal generate No SPT:', err);
+        if (isMounted) setNoSpt('Error - refresh halaman');
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [tanggal]);
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -63,9 +85,7 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
       const fotoUrls: string[] = [];
       for (const photo of photos) {
         const ext = photo.file.name.split('.').pop() || 'webp';
-        const fileName = `${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2)}.${ext}`;
+        const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
         const { error: uploadError } = await supabase.storage
           .from('foto-laporan')
           .upload(fileName, photo.file, {
@@ -88,6 +108,8 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
       const bulan = dateObj.getMonth() + 1;
       const tahun = dateObj.getFullYear();
 
+      const finalTindakan = tindakanDiambil === 'Lainnya' ? tindakanLainnya : tindakanDiambil;
+
       const { error: insertError } = await supabase
         .from('laporan_penindakan')
         .insert({
@@ -100,6 +122,9 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
           foto_urls: fotoUrls,
           bulan,
           tahun,
+          tindakan_diambil: finalTindakan || null,
+          status_tindak_lanjut: statusTindakLanjut || null,
+          no_spt: noSpt,
         });
 
       if (insertError) {
@@ -145,6 +170,16 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
           </select>
         </Field>
 
+        {/* No SPT */}
+        <Field label="No SPT">
+          <input
+            type="text"
+            value={noSpt}
+            readOnly
+            className="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2.5 text-sm text-gray-600"
+          />
+        </Field>
+
         {/* Tanggal */}
         <Field label="Tanggal Kejadian" required>
           <input
@@ -166,7 +201,7 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
           />
         </Field>
 
-        {/* Personel — DI ATAS Uraian */}
+        {/* Personel */}
         <Field label="Personel" hint="Tempel dari WhatsApp">
           <textarea
             value={personel}
@@ -188,7 +223,7 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
           />
         </Field>
 
-        {/* Uraian — DI BAWAH Personel */}
+        {/* Uraian */}
         <Field label="Uraian">
           <textarea
             value={uraian}
@@ -199,55 +234,68 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
           />
         </Field>
 
+        {/* Tindakan yang Diambil */}
+        <Field label="Tindakan yang Diambil">
+          <select
+            value={tindakanDiambil}
+            onChange={(e) => setTindakanDiambil(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+          >
+            <option value="">Pilih Tindakan</option>
+            <option value="Edukasi & Peringatan">Edukasi & Peringatan</option>
+            <option value="Pemeriksaan & Pendataan">Pemeriksaan & Pendataan</option>
+            <option value="Penertiban Fisik & Penindakan Langsung">Penertiban Fisik & Penindakan Langsung</option>
+            <option value="Pengamanan & Penyitaan">Pengamanan & Penyitaan</option>
+            <option value="Lainnya">Lainnya</option>
+          </select>
+          {tindakanDiambil === 'Lainnya' && (
+            <input
+              type="text"
+              value={tindakanLainnya}
+              onChange={(e) => setTindakanLainnya(e.target.value)}
+              placeholder="Masukkan tindakan lainnya..."
+              className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+            />
+          )}
+        </Field>
+
+        {/* Status Tindak Lanjut */}
+        <Field label="Status Tindak Lanjut">
+          <select
+            value={statusTindakLanjut}
+            onChange={(e) => setStatusTindakLanjut(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+          >
+            <option value="">Pilih Status</option>
+            <option value="Selesai">Selesai</option>
+            <option value="Dalam Proses">Dalam Proses</option>
+            <option value="Monitoring">Monitoring</option>
+            <option value="Pelimpahan">Pelimpahan</option>
+            <option value="Pending">Pending</option>
+          </select>
+        </Field>
+
         {/* Upload Foto */}
         <Field label="Upload Foto" hint="Maksimal 3 foto, dikompres otomatis ke WebP (maks 0.5 MB)">
           <div className="flex flex-wrap gap-3">
             {photos.map((photo, idx) => (
-              <div
-                key={idx}
-                className="relative h-24 w-24 overflow-hidden rounded-lg border border-gray-200"
-              >
-                <img
-                  src={photo.previewUrl}
-                  alt={`Foto ${idx + 1}`}
-                  className="h-full w-full object-cover"
-                />
-                <button
-                  onClick={() => removePhoto(idx)}
-                  className="absolute right-1 top-1 rounded-full bg-red-600 p-1 text-white shadow-sm transition hover:bg-red-700"
-                >
+              <div key={idx} className="relative h-24 w-24 overflow-hidden rounded-lg border border-gray-200">
+                <img src={photo.previewUrl} alt={`Foto ${idx + 1}`} className="h-full w-full object-cover" />
+                <button onClick={() => removePhoto(idx)} className="absolute right-1 top-1 rounded-full bg-red-600 p-1 text-white shadow-sm transition hover:bg-red-700">
                   <X className="h-3 w-3" />
                 </button>
               </div>
             ))}
             {photos.length < 3 && (
               <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-400 transition hover:border-[#1B7340] hover:text-[#1B7340]">
-                {compressing ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                ) : (
-                  <>
-                    <ImagePlus className="h-6 w-6" />
-                    <span className="text-[10px]">Tambah</span>
-                  </>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  disabled={compressing}
-                />
+                {compressing ? <Loader2 className="h-6 w-6 animate-spin" /> : <><ImagePlus className="h-6 w-6" /><span className="text-[10px]">Tambah</span></>}
+                <input type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" disabled={compressing} />
               </label>
             )}
           </div>
         </Field>
 
-        {error && (
-          <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
         {/* Tombol */}
         <div className="flex gap-3 pt-2">
@@ -256,51 +304,23 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
             disabled={saving || compressing}
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#C8102E] to-[#a30d24] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-[#a30d24] hover:to-[#C8102E] disabled:opacity-60 active:scale-[0.99]"
           >
-            {saving ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Save className="h-5 w-5" />
-            )}
+            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
             {saving ? 'Menyimpan...' : 'Simpan'}
           </button>
-          <button
-            onClick={onCancel}
-            disabled={saving}
-            className="flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
-          >
+          <button onClick={onCancel} disabled={saving} className="flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-60">
             <X className="h-5 w-5" /> Batal
           </button>
         </div>
-
-        {saving && (
-          <div className="flex items-center gap-2 rounded-lg bg-green-50 px-4 py-2 text-sm text-green-700">
-            <CheckCircle2 className="h-4 w-4 animate-pulse" />
-            Mengompres & mengunggah foto...
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
-function Field({
-  label,
-  required,
-  hint,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  hint?: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, required, hint, children }: { label: string; required?: boolean; hint?: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="mb-1.5 flex items-baseline justify-between">
-        <span className="text-sm font-semibold text-gray-800">
-          {label}
-          {required && <span className="text-red-600"> *</span>}
-        </span>
+        <span className="text-sm font-semibold text-gray-800">{label}{required && <span className="text-red-600"> *</span>}</span>
         {hint && <span className="text-xs text-gray-400">{hint}</span>}
       </label>
       {children}
