@@ -12,6 +12,7 @@ import {
   Wand2,
   ClipboardPaste,
 } from 'lucide-react';
+import { generateNoSpt } from '@/lib/noSpt';
 
 type Props = {
   onCancel: () => void;
@@ -199,7 +200,7 @@ function parseWhatsApp(text: string): Parsed {
   if (!personel) {
     personel = 'Tidak ada personel';
   }
-    // ============================================================
+  // ============================================================
   // 5. DETEKSI URAIAN (2 SKENARIO — SEPERTI PERSONEL)
   // ============================================================
   let inUraian = false;
@@ -245,8 +246,9 @@ function parseWhatsApp(text: string): Parsed {
     // SKENARIO 2: Ada strip ATAU ada sub-judul bernomor → PERTAHANKAN FORMAT ASLI
     uraian = tempUraianLines.join('\n');
   }
-    return { tanggal, lokasi, personel, uraian, dasar_hukum };
-}   
+
+  return { tanggal, lokasi, personel, uraian, dasar_hukum };
+}
 // ============================================================
 // KOMPONEN SMART INPUT
 // ============================================================
@@ -255,6 +257,7 @@ export function SmartInput({ onCancel, onSaved }: Props) {
   const [detected, setDetected] = useState(false);
   const [parsed, setParsed] = useState<Parsed | null>(null);
   const [kategori, setKategori] = useState<string>(CATEGORIES[0].key);
+  const [noSpt, setNoSpt] = useState('');
   const [uraian, setUraian] = useState('');
   const [dasarHukum, setDasarHukum] = useState('');
   const [photos, setPhotos] = useState<CompressedPhoto[]>([]);
@@ -273,7 +276,12 @@ export function SmartInput({ onCancel, onSaved }: Props) {
     setUraian(result.uraian);
     setDasarHukum(result.dasar_hukum);
     setDetected(true);
+     // 🔥 GENERATE NO SPT dari tanggal yang terdeteksi
+  if (result.tanggal) {
+    const tahun = new Date(result.tanggal).getFullYear();
+    generateNoSpt(tahun).then(setNoSpt);
   }
+}
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -346,6 +354,7 @@ export function SmartInput({ onCancel, onSaved }: Props) {
           foto_urls: fotoUrls,
           bulan,
           tahun,
+          no_spt: noSpt,   // ← TAMBAHKAN INI
         });
 
       if (insertError) {
@@ -461,6 +470,19 @@ export function SmartInput({ onCancel, onSaved }: Props) {
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* 🔥 FIELD NO SPT (BARU) */}
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-gray-800">
+              No SPT
+            </label>
+            <input
+              type="text"
+              value={noSpt}
+              onChange={(e) => setNoSpt(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2.5 text-sm text-gray-600"
+            />
           </div>
 
           <div>
