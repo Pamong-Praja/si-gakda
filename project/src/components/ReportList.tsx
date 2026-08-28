@@ -57,57 +57,21 @@ export function ReportList({
     setLoading(false);
   }
 
- async function handleDelete(id: string) {
-  if (!window.confirm('Yakin ingin menghapus laporan ini? Data dan foto tidak dapat dikembalikan.')) return;
-  
-  setDeletingId(id);
-  
-  try {
-    // 1. Ambil daftar URL foto sebelum menghapus data
-    const { data: report, error: fetchError } = await supabase
-      .from('laporan_penindakan')
-      .select('foto_urls')
-      .eq('id', id)
-      .single();
-
-    if (fetchError) throw fetchError;
-
-    // 2. Hapus file foto dari Storage (jika ada)
-    if (report?.foto_urls && report.foto_urls.length > 0) {
-      // Ambil nama file dari URL
-      const filePaths = report.foto_urls.map((url: string) => {
-        return url.split('/foto-laporan/')[1]; // ambil nama file
-      });
-
-      const { error: storageError } = await supabase.storage
-        .from('foto-laporan')
-        .remove(filePaths);
-
-      if (storageError) {
-        console.error('Gagal hapus foto:', storageError);
-        // Lanjutkan meskipun gagal hapus foto
-      }
-    }
-
-    // 3. Hapus data laporan dari database
-    const { error: deleteError } = await supabase
+  async function handleDelete(id: string) {
+    if (!window.confirm('Yakin ingin menghapus laporan ini?')) return;
+    setDeletingId(id);
+    const { error } = await supabase
       .from('laporan_penindakan')
       .delete()
       .eq('id', id);
-
-    if (deleteError) throw deleteError;
-
-    // 4. Refresh daftar laporan
-    await fetchReports();
-    alert('✅ Laporan dan foto berhasil dihapus!');
-    
-  } catch (error) {
-    console.error(error);
-    alert('❌ Gagal menghapus laporan: ' + (error as Error).message);
-  } finally {
     setDeletingId(null);
+    if (error) {
+      console.error(error);
+      alert('Gagal menghapus laporan: ' + error.message);
+      return;
+    }
+    await fetchReports();
   }
-}
 
   const filtered = reports.filter((r) => {
     if (!search.trim()) return true;
@@ -117,71 +81,78 @@ export function ReportList({
       r.personel?.toLowerCase().includes(q) ||
       r.uraian?.toLowerCase().includes(q) ||
       r.dasar_hukum?.toLowerCase().includes(q) ||
+      r.no_spt?.toLowerCase().includes(q) ||
       r.tanggal?.includes(q)
     );
   });
 
-function handleExportExcel() {
-  const rows = filtered.map((r, i) => ({
-    No: i + 1,
-    'Dasar Hukum': r.dasar_hukum ?? '',     // ← PINDAH KE SINI (setelah No)
-    Tanggal: r.tanggal,
-    Lokasi: r.lokasi,
-    Personel: r.personel ?? '',
-    Uraian: r.uraian ?? '',
-    'Foto 1': (r.foto_urls && r.foto_urls.length > 0) ? r.foto_urls[0] : '-',
-    'Foto 2': (r.foto_urls && r.foto_urls.length > 1) ? r.foto_urls[1] : '-',
-    'Foto 3': (r.foto_urls && r.foto_urls.length > 2) ? r.foto_urls[2] : '-',
-  }));
+  function handleExportExcel() {
+    const rows = filtered.map((r, i) => ({
+      No: i + 1,
+      'No SPT': r.no_spt || '-',
+      'Dasar Hukum': r.dasar_hukum ?? '',
+      Tanggal: r.tanggal,
+      Lokasi: r.lokasi,
+      Personel: r.personel ?? '',
+      Uraian: r.uraian ?? '',
+      'Tindakan': r.tindakan_diambil || '-',
+      'Status': r.status_tindak_lanjut || '-',
+      'Foto 1': (r.foto_urls && r.foto_urls.length > 0) ? r.foto_urls[0] : '-',
+      'Foto 2': (r.foto_urls && r.foto_urls.length > 1) ? r.foto_urls[1] : '-',
+      'Foto 3': (r.foto_urls && r.foto_urls.length > 2) ? r.foto_urls[2] : '-',
+    }));
 
-  const ws = XLSX.utils.json_to_sheet(rows);
+    const ws = XLSX.utils.json_to_sheet(rows);
 
-  // 🔥 LEBAR KOLOM
-  ws['!cols'] = [
-    { wch: 5 },   // No
-    { wch: 45 },  // Dasar Hukum (LEBIH LEBAR)
-    { wch: 15 },  // Tanggal
-    { wch: 30 },  // Lokasi
-    { wch: 35 },  // Personel
-    { wch: 60 },  // Uraian (LEBIH LEBAR)
-    { wch: 50 },  // Foto 1
-    { wch: 50 },  // Foto 2
-    { wch: 50 },  // Foto 3
-  ];
+    ws['!cols'] = [
+      { wch: 5 },   // No
+      { wch: 20 },  // No SPT
+      { wch: 45 },  // Dasar Hukum
+      { wch: 15 },  // Tanggal
+      { wch: 30 },  // Lokasi
+      { wch: 35 },  // Personel
+      { wch: 60 },  // Uraian
+      { wch: 25 },  // Tindakan
+      { wch: 18 },  // Status
+      { wch: 50 },  // Foto 1
+      { wch: 50 },  // Foto 2
+      { wch: 50 },  // Foto 3
+    ];
 
-  // 🔥 WRAP TEXT & HYPERLINK
-  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
 
-  for (let row = range.s.r; row <= range.e.r; row++) {
-    for (let col = range.s.c; col <= range.e.c; col++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
-      if (ws[cellAddress]) {
-        ws[cellAddress].s = {
-          alignment: {
-            wrapText: true,
-            vertical: 'top',
-          },
-        };
+    for (let row = range.s.r; row <= range.e.r; row++) {
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+        if (ws[cellAddress]) {
+          ws[cellAddress].s = {
+            alignment: {
+              wrapText: true,
+              vertical: 'top',
+            },
+          };
+        }
       }
     }
-  }
 
-  const fotoColumns = [6, 7, 8]; // indeks Foto 1, 2, 3
-  for (const colIdx of fotoColumns) {
-    for (let row = range.s.r + 1; row <= range.e.r; row++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: row, c: colIdx });
-      const cell = ws[cellAddress];
-      if (cell && cell.v && cell.v !== '-') {
-        cell.l = { Target: cell.v };
+    // Hyperlink untuk kolom Foto (indeks 9, 10, 11 karena ada No SPT di indeks 1)
+    const fotoColumns = [9, 10, 11];
+    for (const colIdx of fotoColumns) {
+      for (let row = range.s.r + 1; row <= range.e.r; row++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: row, c: colIdx });
+        const cell = ws[cellAddress];
+        if (cell && cell.v && cell.v !== '-') {
+          cell.l = { Target: cell.v };
+        }
       }
     }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Laporan');
+    const fileName = `Laporan_${cat?.shortName ?? kategoriKey}_${MONTH_NAMES[month - 1]}_${year}.xlsx`;
+    XLSX.writeFile(wb, fileName);
   }
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Laporan');
-  const fileName = `Laporan_${cat?.shortName ?? kategoriKey}_${MONTH_NAMES[month - 1]}_${year}.xlsx`;
-  XLSX.writeFile(wb, fileName);
-}
   const now = new Date();
   const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
 
@@ -194,7 +165,6 @@ function handleExportExcel() {
         <ArrowLeft className="h-4 w-4" /> Kembali ke Dashboard
       </button>
 
-      {/* Header kategori */}
       <div
         className={`mb-5 overflow-hidden rounded-2xl bg-gradient-to-r ${cat?.gradient} p-5 shadow-sm`}
       >
@@ -211,7 +181,6 @@ function handleExportExcel() {
         </div>
       </div>
 
-      {/* Filter & search */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-end gap-3">
           <div>
@@ -259,7 +228,6 @@ function handleExportExcel() {
         </div>
       </div>
 
-      {/* Export button */}
       <div className="mb-4 flex justify-end">
         <button
           onClick={handleExportExcel}
@@ -270,7 +238,6 @@ function handleExportExcel() {
         </button>
       </div>
 
-      {/* Tabel */}
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
         {loading ? (
           <div className="flex items-center justify-center py-16">
@@ -286,11 +253,14 @@ function handleExportExcel() {
               <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-4 py-3 font-semibold">No</th>
+                  <th className="px-4 py-3 font-semibold">No SPT</th>
                   <th className="px-4 py-3 font-semibold">Dasar Hukum</th>
                   <th className="px-4 py-3 font-semibold">Tanggal</th>
                   <th className="px-4 py-3 font-semibold">Lokasi</th>
                   <th className="px-4 py-3 font-semibold">Personel</th>
                   <th className="px-4 py-3 font-semibold">Uraian</th>
+                  <th className="px-4 py-3 font-semibold">Tindakan</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
                   <th className="px-4 py-3 font-semibold">Foto</th>
                   <th className="px-4 py-3 font-semibold">Aksi</th>
                 </tr>
@@ -304,6 +274,9 @@ function handleExportExcel() {
                   >
                     <td className="px-4 py-3 font-medium text-gray-500">
                       {i + 1}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {r.no_spt || '-'}
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       <div
@@ -332,6 +305,12 @@ function handleExportExcel() {
                       <div className="max-w-[240px] truncate">
                         {r.uraian || '-'}
                       </div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {r.tindakan_diambil || '-'}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {r.status_tindak_lanjut || '-'}
                     </td>
                     <td className="px-4 py-3">
                       {(r.foto_urls ?? []).length > 0 ? (
@@ -374,7 +353,6 @@ function handleExportExcel() {
         )}
       </div>
 
-      {/* Ujung rekapan */}
       {!loading && (
         <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
