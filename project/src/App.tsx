@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Header, Footer } from '@/components/Layout';
 import { Dashboard } from '@/components/Dashboard';
 import { ReportForm } from '@/components/ReportForm';
-import { ReportForm as SmartInput } from '@/components/SmartInput';
+import { SmartInput } from '@/components/SmartInput';
 import { ReportList } from '@/components/ReportList';
 import { ReportDetail } from '@/components/ReportDetail';
 import { AuthPage } from '@/components/AuthPage';
