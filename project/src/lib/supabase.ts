@@ -44,6 +44,8 @@ export type Laporan = {
   id: string;
   kategori: string;
   tanggal: string;
+  waktu_mulai: string | null;
+  waktu_selesai: string | null;
   lokasi: string;
   personel: string | null;
   uraian: string | null;
@@ -61,6 +63,8 @@ export type Laporan = {
 export type LaporanInput = {
   kategori: string;
   tanggal: string;
+  waktu_mulai?: string | null;
+  waktu_selesai?: string | null;
   lokasi: string;
   personel: string | null;
   uraian: string | null;
