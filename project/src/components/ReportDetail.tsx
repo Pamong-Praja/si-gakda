@@ -114,7 +114,7 @@ export function ReportDetail({ reportId, onBack }: Props) {
           </div>
         </div>
       </div>
-
+      
       <div className="space-y-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
         {/* 🔥 NO SPT (BARU) - DI ATAS DASAR HUKUM */}
         <DetailRow icon={<FileText className="h-4 w-4" />} label="No SPT">
@@ -130,6 +130,14 @@ export function ReportDetail({ reportId, onBack }: Props) {
           {formatDate(report.tanggal)}
         </DetailRow>
 
+<DetailRow icon={<Clock className="h-4 w-4" />} label="Waktu">
+  {report.waktu_mulai && report.waktu_selesai 
+    ? `Pukul ${report.waktu_mulai.slice(0,5)} WIB - ${report.waktu_selesai.slice(0,5)} WIB`
+    : report.waktu_mulai 
+      ? `Pukul ${report.waktu_mulai.slice(0,5)} WIB`
+      : '-'}
+</DetailRow>
+        
         <DetailRow icon={<MapPin className="h-4 w-4" />} label="Lokasi">
           {report.lokasi}
         </DetailRow>
