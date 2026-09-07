@@ -14,6 +14,8 @@ type Props = {
 export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
   const [kategori, setKategori] = useState(defaultKategori ?? CATEGORIES[0].key);
   const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10));
+  const [waktuMulai, setWaktuMulai] = useState('');
+  const [waktuSelesai, setWaktuSelesai] = useState('');
   const [lokasi, setLokasi] = useState('');
   const [personel, setPersonel] = useState('');
   const [uraian, setUraian] = useState('');
@@ -115,6 +117,8 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
         .insert({
           kategori,
           tanggal,
+          waktu_mulai: waktuMulai || null,
+          waktu_selesai: waktuSelesai || null,
           lokasi: lokasi.trim(),
           personel: personel.trim() || null,
           uraian: uraian.trim() || null,
@@ -189,6 +193,24 @@ export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
             className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
           />
         </Field>
+
+        <Field label="Waktu Mulai">
+  <input
+    type="time"
+    value={waktuMulai}
+    onChange={(e) => setWaktuMulai(e.target.value)}
+    className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+  />
+</Field>
+
+<Field label="Waktu Selesai (opsional)">
+  <input
+    type="time"
+    value={waktuSelesai}
+    onChange={(e) => setWaktuSelesai(e.target.value)}
+    className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+  />
+</Field>
 
         {/* Lokasi */}
         <Field label="Lokasi" required>
