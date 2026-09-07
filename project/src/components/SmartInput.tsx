@@ -1,296 +1,65 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { CATEGORIES } from '@/lib/categories';
 import { compressPhotos, type CompressedPhoto } from '@/lib/photo';
-import {
-  ArrowLeft,
-  Search,
-  Save,
-  X,
-  ImagePlus,
-  Loader2,
-  Wand2,
-  ClipboardPaste,
-} from 'lucide-react';
+import { ArrowLeft, Save, X, ImagePlus, Loader2, CheckCircle2 } from 'lucide-react';
 import { generateNoSpt } from '@/lib/noSpt';
 
 type Props = {
   onCancel: () => void;
   onSaved: () => void;
+  defaultKategori?: string;
 };
 
-type Parsed = {
-  tanggal: string;
-  lokasi: string;
-  personel: string;
-  uraian: string;
-  dasar_hukum: string;
-};
-
-// ============================================================
-// PARSER CERDAS UNTUK LAPORAN TIDAK RAPI
-// ============================================================
-function parseWhatsApp(text: string): Parsed {
-  const rawLines = text.split('\n');
-
-  // ============================================================
-  // 0. BERSIHKAN KARAKTER ANEH (вЂЋ, \u200E, dll.)
-  // ============================================================
-  const lines = rawLines.map(line =>
-    line.replace(/^[\u200E\u200F\u202A-\u202E]/, '').trim()
-  );
-
-  // ============================================================
-  // 1. DETEKSI TANGGAL
-  // ============================================================
-  let tanggal = '';
-  const tanggalMatch = text.match(/(\d{1,2})\s+(Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember)\s+(\d{4})/i);
-  if (tanggalMatch) {
-    const bulanMap: Record<string, string> = {
-      'Januari': '01', 'Februari': '02', 'Maret': '03', 'April': '04',
-      'Mei': '05', 'Juni': '06', 'Juli': '07', 'Agustus': '08',
-      'September': '09', 'Oktober': '10', 'November': '11', 'Desember': '12'
-    };
-    tanggal = `${tanggalMatch[3]}-${bulanMap[tanggalMatch[2]]}-${tanggalMatch[1].padStart(2, '0')}`;
-  } else {
-    const slashMatch = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/);
-    if (slashMatch) {
-      tanggal = `${slashMatch[3]}-${slashMatch[2].padStart(2, '0')}-${slashMatch[1].padStart(2, '0')}`;
-    }
-  }
-  if (!tanggal) {
-    tanggal = new Date().toISOString().slice(0, 10);
-  }
-
-  // ============================================================
-  // 2. DETEKSI LOKASI
-  // ============================================================
-  let lokasi = '';
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const lokasiMatch = trimmed.match(/lokasi\s*:\s*(.+)/i);
-    if (lokasiMatch) {
-      lokasi = lokasiMatch[1].trim();
-      break;
-    }
-    const diMatch = trimmed.match(/di\s+([A-Za-z\s,()]+)/i);
-    if (diMatch && diMatch[1].length > 5) {
-      lokasi = diMatch[1].trim();
-    }
-  }
-
-  // ============================================================
-  // 3. DETEKSI DASAR HUKUM
-  // ============================================================
-  let inDasar = false;
-  const dasarLines: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (!inDasar) {
-      if (/^(I\.\s*)?DASAR\s*(HUKUM)?\s*:?/i.test(trimmed) || /^dasar\s*(hukum)?\s*:?/i.test(trimmed)) {
-        inDasar = true;
-        const after = trimmed.replace(/^.*?:\s*/, '').trim();
-        if (after) dasarLines.push(after);
-        continue;
-      }
-    } else {
-      if (/^(II|III|KEGIATAN)/i.test(trimmed)) break;
-      dasarLines.push(trimmed);
-    }
-  }
-  let dasar_hukum = '';
-  const dasarItems = dasarLines.filter(l => l.length > 2).map(l => l.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
-  if (dasarItems.length > 0) {
-    dasar_hukum = dasarItems.map((item, i) => `${i + 1}. ${item}`).join('\n');
-  }
-
-    // ============================================================
-  // 4. DETEKSI PERSONEL (PERTAHANKAN FORMAT ASLI)
-  // ============================================================
-  let inPersonel = false;
-  const personelLines: string[] = [];
-  let hasStrip = false;
-
-  // Kumpulkan semua baris dari bagian PERSONEL
-  let tempInPersonel = false;
-  const tempLines: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (!tempInPersonel) {
-      if (/^V\.\s*PERSONEL\s*:?/i.test(trimmed) || /^PERSONEL\s*:?/i.test(trimmed)) {
-        tempInPersonel = true;
-        continue;
-      }
-    } else {
-      if (/^(VI|HASIL\s*KEGIATAN|VII|KETERANGAN|VIII|DOKUMENTASI)/i.test(trimmed)) break;
-      tempLines.push(trimmed);
-      if (/^\s*[-*•]\s*/.test(trimmed)) {
-        hasStrip = true;
-      }
-    }
-  }
-
-  // Jika tidak ada strip → SKENARIO 1: Semua angka (Satpol PP saja)
-  // Jika ada strip → SKENARIO 2: Campuran (pertahankan format asli)
-  
-  if (!hasStrip) {
-    // SKENARIO 1: Hanya personel Satpol PP (nomor urut ulang 1., 2., 3.)
-    for (let i = 0; i < tempLines.length; i++) {
-      const content = tempLines[i].replace(/^\s*(\d+)[.)]\s*/, '').trim();
-      if (content) {
-        personelLines.push(`${i + 1}. ${content}`);
-      }
-    }
-  } else {
-    // SKENARIO 2: Campuran (pertahankan format: angka untuk instansi, strip untuk Satpol PP)
-    let counter = 0;
-    let isSatpolSection = false;
-    let satpolCounter = 0;
-    
-    for (const line of tempLines) {
-      // Deteksi "Satpol PP"
-      if (/^2\.\s*Satpol\s*PP/i.test(line) || /^Satpol\s*PP/i.test(line)) {
-        isSatpolSection = true;
-        satpolCounter = 0;
-        const clean = line.replace(/^\s*(\d+)[.)]\s*/, '').trim();
-        counter++;
-        personelLines.push(`${counter}. ${clean}`);
-        continue;
-      }
-
-      // Jika sedang di bagian Satpol PP
-      if (isSatpolSection) {
-        // Jika ketemu angka di awal baris (bukan "Satpol PP"), berarti sudah keluar
-        if (/^\s*(\d+)\./.test(line) && !/Satpol\s*PP/i.test(line)) {
-          isSatpolSection = false;
-          const content = line.replace(/^\s*(\d+)[.)]\s*/, '').trim();
-          if (content) {
-            counter++;
-            personelLines.push(`${counter}. ${content}`);
-          }
-          continue;
-        }
-        // Jika baris diawali strip (-) → personel Satpol PP, pertahankan strip + indentasi
-        if (/^\s*[-*•]\s*/.test(line)) {
-          const content = line.replace(/^\s*[-*•]\s*/, '').trim();
-          if (content) {
-            satpolCounter++;
-            // Strip tanpa nomor, tapi dengan indentasi 3 spasi
-            personelLines.push(`   - ${content}`);
-          }
-          continue;
-        }
-        // Jika baris tidak dikenal, lewati
-        continue;
-      }
-
-      // Untuk baris lain (bukan Satpol PP)
-      const content = line.replace(/^\s*(\d+)[.)]\s*/, '').trim();
-      if (content) {
-        counter++;
-        personelLines.push(`${counter}. ${content}`);
-      }
-    }
-  }
-
-  let personel = personelLines.join('\n');
-  if (!personel) {
-    personel = 'Tidak ada personel';
-  }
-  // ============================================================
-  // 5. DETEKSI URAIAN (2 SKENARIO — SEPERTI PERSONEL)
-  // ============================================================
-  let inUraian = false;
-  const uraianLines: string[] = [];
-  let hasStripUraian = false;
-  let hasNumberedSubHeadings = false;
-
-  let tempInUraian = false;
-  const tempUraianLines: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (!tempInUraian) {
-      if (/hasil\s*kegiatan/i.test(trimmed)) {
-        tempInUraian = true;
-        continue;
-      }
-    } else {
-      if (/^(VII|KETERANGAN|DEMIKIAN|VIII|DOKUMENTASI|PENUTUP)/i.test(trimmed)) break;
-      tempUraianLines.push(trimmed);
-      if (/^\s*[-*•]\s*/.test(trimmed)) {
-        hasStripUraian = true;
-      }
-      if (/^\s*(\d+)\.\s*[A-Z]/.test(trimmed)) {
-        hasNumberedSubHeadings = true;
-      }
-    }
-  }
-
-  let uraian = '';
-
-  if (tempUraianLines.length === 0) {
-    uraian = '';
-  } else if (!hasStripUraian && !hasNumberedSubHeadings) {
-    // SKENARIO 1: Tidak ada strip, tidak ada sub-judul → beri nomor semua
-    const cleanLines: string[] = [];
-    for (const line of tempUraianLines) {
-      const cleaned = line.replace(/^\s*(\d+)[.)]\s*/, '').trim();
-      if (cleaned) cleanLines.push(cleaned);
-    }
-    uraian = cleanLines.map((line, i) => `${i + 1}. ${line}`).join('\n');
-  } else {
-    // SKENARIO 2: Ada strip ATAU ada sub-judul bernomor → PERTAHANKAN FORMAT ASLI
-    uraian = tempUraianLines.join('\n');
-  }
-
-  return { tanggal, lokasi, personel, uraian, dasar_hukum };
-}
-// ============================================================
-// KOMPONEN SMART INPUT
-// ============================================================
-export function SmartInput({ onCancel, onSaved }: Props) {
-  const [rawText, setRawText] = useState('');
-  const [detected, setDetected] = useState(false);
-  const [parsed, setParsed] = useState<Parsed | null>(null);
-  const [kategori, setKategori] = useState<string>(CATEGORIES[0].key);
-  const [noSpt, setNoSpt] = useState('');
+export function ReportForm({ onCancel, onSaved, defaultKategori }: Props) {
+  const [kategori, setKategori] = useState(defaultKategori ?? CATEGORIES[0].key);
+  const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10));
+  const [waktuMulai, setWaktuMulai] = useState('');
+  const [waktuSelesai, setWaktuSelesai] = useState('');
+  const [lokasi, setLokasi] = useState('');
+  const [personel, setPersonel] = useState('');
   const [uraian, setUraian] = useState('');
   const [dasarHukum, setDasarHukum] = useState('');
+  const [noSpt, setNoSpt] = useState('Memuat...');
+  const [tindakanDiambil, setTindakanDiambil] = useState('');
+  const [statusTindakLanjut, setStatusTindakLanjut] = useState('');
+  const [tindakanLainnya, setTindakanLainnya] = useState('');
   const [photos, setPhotos] = useState<CompressedPhoto[]>([]);
   const [compressing, setCompressing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function handleDetect() {
-    if (!rawText.trim()) {
-      setError('Tempel laporan dari WhatsApp dulu');
-      return;
-    }
-    setError(null);
-    const result = parseWhatsApp(rawText);
-    setParsed(result);
-    setUraian(result.uraian);
-    setDasarHukum(result.dasar_hukum);
-    setDetected(true);
-     // 🔥 GENERATE NO SPT dari tanggal yang terdeteksi
-  if (result.tanggal) {
-    const tahun = new Date(result.tanggal).getFullYear();
-    generateNoSpt(tahun).then(setNoSpt);
-  }
-}
+  // 🔥 Generate No SPT dengan error handling + fallback
+  useEffect(() => {
+    let isMounted = true;
+    const tahun = new Date(tanggal).getFullYear();
+
+    generateNoSpt(tahun)
+      .then((result) => {
+        if (isMounted) setNoSpt(result);
+      })
+      .catch((err) => {
+        console.error('Gagal generate No SPT:', err);
+        if (isMounted) setNoSpt('Error - refresh halaman');
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [tanggal]);
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
     setCompressing(true);
+    setError(null);
     try {
       const remaining = 3 - photos.length;
-      const compressed = await compressPhotos(files.slice(0, remaining));
+      const toCompress = files.slice(0, remaining);
+      const compressed = await compressPhotos(toCompress);
       setPhotos((prev) => [...prev, ...compressed]);
+    } catch {
+      setError('Gagal mengompres foto');
     } finally {
       setCompressing(false);
       e.target.value = '';
@@ -307,20 +76,18 @@ export function SmartInput({ onCancel, onSaved }: Props) {
   }
 
   async function handleSave() {
-    if (!parsed) return;
     setError(null);
-    if (!parsed.lokasi.trim()) {
-      setError('Lokasi tidak terdeteksi, mohon isi manual');
+    if (!kategori || !tanggal || !lokasi.trim()) {
+      setError('Kategori, tanggal, dan lokasi wajib diisi');
       return;
     }
     setSaving(true);
+
     try {
       const fotoUrls: string[] = [];
       for (const photo of photos) {
         const ext = photo.file.name.split('.').pop() || 'webp';
-        const fileName = `${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2)}.${ext}`;
+        const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
         const { error: uploadError } = await supabase.storage
           .from('foto-laporan')
           .upload(fileName, photo.file, {
@@ -328,6 +95,7 @@ export function SmartInput({ onCancel, onSaved }: Props) {
             upsert: false,
           });
         if (uploadError) {
+          console.error('Upload error:', uploadError);
           setError('Gagal upload foto: ' + uploadError.message);
           setSaving(false);
           return;
@@ -338,23 +106,29 @@ export function SmartInput({ onCancel, onSaved }: Props) {
         fotoUrls.push(urlData.publicUrl);
       }
 
-      const dateObj = new Date(parsed.tanggal);
+      const dateObj = new Date(tanggal);
       const bulan = dateObj.getMonth() + 1;
       const tahun = dateObj.getFullYear();
+
+      const finalTindakan = tindakanDiambil === 'Lainnya' ? tindakanLainnya : tindakanDiambil;
 
       const { error: insertError } = await supabase
         .from('laporan_penindakan')
         .insert({
           kategori,
-          tanggal: parsed.tanggal,
-          lokasi: parsed.lokasi.trim(),
-          personel: parsed.personel.trim() || null,
+          tanggal,
+          waktu_mulai: waktuMulai || null,
+          waktu_selesai: waktuSelesai || null,
+          lokasi: lokasi.trim(),
+          personel: personel.trim() || null,
           uraian: uraian.trim() || null,
           dasar_hukum: dasarHukum.trim() || null,
           foto_urls: fotoUrls,
           bulan,
           tahun,
-          no_spt: noSpt,   // ← TAMBAHKAN INI
+          tindakan_diambil: finalTindakan || null,
+          status_tindak_lanjut: statusTindakLanjut || null,
+          no_spt: noSpt,
         });
 
       if (insertError) {
@@ -371,29 +145,6 @@ export function SmartInput({ onCancel, onSaved }: Props) {
     }
   }
 
-  function handleReset() {
-    setDetected(false);
-    setParsed(null);
-    setRawText('');
-    setUraian('');
-    setDasarHukum('');
-    setPhotos([]);
-    setError(null);
-  }
-
-  function updateParsed(field: keyof Parsed, value: string) {
-    setParsed((p) => (p ? { ...p, [field]: value } : p));
-  }
-
-  async function handlePaste() {
-    try {
-      const text = await navigator.clipboard.readText();
-      setRawText(text);
-    } catch {
-      setError('Tidak bisa mengakses clipboard. Tempel manual dengan Ctrl+V.');
-    }
-  }
-
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <button
@@ -403,226 +154,198 @@ export function SmartInput({ onCancel, onSaved }: Props) {
         <ArrowLeft className="h-4 w-4" /> Kembali
       </button>
 
-      <div className="mb-6 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#F5B041] to-[#C8102E]">
-          <Wand2 className="h-5 w-5 text-white" />
-        </div>
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 sm:text-2xl">
-            Smart Input dari WhatsApp
-          </h2>
-          <p className="text-sm text-gray-500">
-            Tempel laporan, deteksi otomatis, lalu simpan
-          </p>
-        </div>
-      </div>
+      <h2 className="mb-6 text-xl font-bold text-gray-900 sm:text-2xl">
+        Input Laporan Penindakan
+      </h2>
 
-      {!detected ? (
-        <div className="space-y-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold text-gray-800">
-              Tempelkan laporan dari WhatsApp di sini
-            </label>
-            <button
-              onClick={handlePaste}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50"
-            >
-              <ClipboardPaste className="h-3.5 w-3.5" /> Tempel
-            </button>
-          </div>
+      <div className="space-y-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        {/* Kategori */}
+        <Field label="Kategori" required>
+          <select
+            value={kategori}
+            onChange={(e) => setKategori(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+          >
+            {CATEGORIES.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.emoji} {c.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        {/* No SPT */}
+        <Field label="No SPT">
+          <input
+            type="text"
+            value={noSpt}
+            readOnly
+            className="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2.5 text-sm text-gray-600"
+          />
+        </Field>
+
+        {/* Tanggal */}
+        <Field label="Tanggal Kejadian" required>
+          <input
+            type="date"
+            value={tanggal}
+            onChange={(e) => setTanggal(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+          />
+        </Field>
+
+        <Field label="Waktu Mulai">
+  <input
+    type="time"
+    value={waktuMulai}
+    onChange={(e) => setWaktuMulai(e.target.value)}
+    className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+  />
+</Field>
+
+<Field label="Waktu Selesai (opsional)">
+  <input
+    type="time"
+    value={waktuSelesai}
+    onChange={(e) => setWaktuSelesai(e.target.value)}
+    className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+  />
+</Field>
+
+        {/* Lokasi */}
+        <Field label="Lokasi" required>
+          <input
+            type="text"
+            value={lokasi}
+            onChange={(e) => setLokasi(e.target.value)}
+            placeholder="Contoh: Jl. Diponegoro, Teluk Kuantan"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+          />
+        </Field>
+
+        {/* Personel */}
+        <Field label="Personel" hint="Tempel dari WhatsApp">
           <textarea
-            value={rawText}
-            onChange={(e) => setRawText(e.target.value)}
-            rows={10}
-            placeholder="Tempel laporan dari WhatsApp di sini..."
+            value={personel}
+            onChange={(e) => setPersonel(e.target.value)}
+            rows={3}
+            placeholder="Daftar personel yang terlibat..."
             className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
           />
-          {error && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-          <button
-            onClick={handleDetect}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#C8102E] to-[#a30d24] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-[#a30d24] hover:to-[#C8102E] active:scale-[0.99]"
+        </Field>
+
+        {/* Dasar Hukum */}
+        <Field label="Dasar Hukum" hint="Format list/poin">
+          <textarea
+            value={dasarHukum}
+            onChange={(e) => setDasarHukum(e.target.value)}
+            rows={4}
+            placeholder="1. Peraturan ...&#10;2. Permendagri ...&#10;3. Perbup ..."
+            className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+          />
+        </Field>
+
+        {/* Uraian */}
+        <Field label="Uraian">
+          <textarea
+            value={uraian}
+            onChange={(e) => setUraian(e.target.value)}
+            rows={4}
+            placeholder="Uraian kejadian / penindakan..."
+            className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+          />
+        </Field>
+
+        {/* Tindakan yang Diambil */}
+        <Field label="Tindakan yang Diambil">
+          <select
+            value={tindakanDiambil}
+            onChange={(e) => setTindakanDiambil(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
           >
-            <Search className="h-5 w-5" /> Deteksi Otomatis
+            <option value="">Pilih Tindakan</option>
+            <option value="Edukasi & Peringatan">Edukasi & Peringatan</option>
+            <option value="Pemeriksaan & Pendataan">Pemeriksaan & Pendataan</option>
+            <option value="Penertiban Fisik & Penindakan Langsung">Penertiban Fisik & Penindakan Langsung</option>
+            <option value="Pengamanan & Penyitaan">Pengamanan & Penyitaan</option>
+            <option value="Lainnya">Lainnya</option>
+          </select>
+          {tindakanDiambil === 'Lainnya' && (
+            <input
+              type="text"
+              value={tindakanLainnya}
+              onChange={(e) => setTindakanLainnya(e.target.value)}
+              placeholder="Masukkan tindakan lainnya..."
+              className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+            />
+          )}
+        </Field>
+
+        {/* Status Tindak Lanjut */}
+        <Field label="Status Tindak Lanjut">
+          <select
+            value={statusTindakLanjut}
+            onChange={(e) => setStatusTindakLanjut(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
+          >
+            <option value="">Pilih Status</option>
+            <option value="Selesai">Selesai</option>
+            <option value="Dalam Proses">Dalam Proses</option>
+            <option value="Monitoring">Monitoring</option>
+            <option value="Pelimpahan">Pelimpahan</option>
+            <option value="Pending">Pending</option>
+          </select>
+        </Field>
+
+        {/* Upload Foto */}
+        <Field label="Upload Foto" hint="Maksimal 3 foto, dikompres otomatis ke WebP (maks 0.5 MB)">
+          <div className="flex flex-wrap gap-3">
+            {photos.map((photo, idx) => (
+              <div key={idx} className="relative h-24 w-24 overflow-hidden rounded-lg border border-gray-200">
+                <img src={photo.previewUrl} alt={`Foto ${idx + 1}`} className="h-full w-full object-cover" />
+                <button onClick={() => removePhoto(idx)} className="absolute right-1 top-1 rounded-full bg-red-600 p-1 text-white shadow-sm transition hover:bg-red-700">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {photos.length < 3 && (
+              <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-400 transition hover:border-[#1B7340] hover:text-[#1B7340]">
+                {compressing ? <Loader2 className="h-6 w-6 animate-spin" /> : <><ImagePlus className="h-6 w-6" /><span className="text-[10px]">Tambah</span></>}
+                <input type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" disabled={compressing} />
+              </label>
+            )}
+          </div>
+        </Field>
+
+        {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+
+        {/* Tombol */}
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={handleSave}
+            disabled={saving || compressing}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#C8102E] to-[#a30d24] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-[#a30d24] hover:to-[#C8102E] disabled:opacity-60 active:scale-[0.99]"
+          >
+            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
+            {saving ? 'Menyimpan...' : 'Simpan'}
+          </button>
+          <button onClick={onCancel} disabled={saving} className="flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-60">
+            <X className="h-5 w-5" /> Batal
           </button>
         </div>
-      ) : (
-        <div className="space-y-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">
-            Berhasil mendeteksi data. Periksa & lengkapi sebelum menyimpan.
-          </div>
+      </div>
+    </div>
+  );
+}
 
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-              Kategori
-            </label>
-            <select
-              value={kategori}
-              onChange={(e) => setKategori(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.emoji} {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 🔥 FIELD NO SPT (BARU) */}
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-              No SPT
-            </label>
-            <input
-              type="text"
-              value={noSpt}
-              onChange={(e) => setNoSpt(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2.5 text-sm text-gray-600"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-              Tanggal Kejadian
-            </label>
-            <input
-              type="date"
-              value={parsed?.tanggal ?? ''}
-              onChange={(e) => updateParsed('tanggal', e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-              Lokasi
-            </label>
-            <input
-              type="text"
-              value={parsed?.lokasi ?? ''}
-              onChange={(e) => updateParsed('lokasi', e.target.value)}
-              placeholder="Lokasi kejadian"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-              Personel
-            </label>
-            <textarea
-              value={parsed?.personel ?? ''}
-              onChange={(e) => updateParsed('personel', e.target.value)}
-              rows={4}
-              placeholder="Daftar personel..."
-              className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-              Dasar Hukum
-            </label>
-            <textarea
-              value={dasarHukum}
-              onChange={(e) => setDasarHukum(e.target.value)}
-              rows={4}
-              placeholder="1. Peraturan ...&#10;2. Permendagri ...&#10;3. Perbup ..."
-              className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-              Uraian
-            </label>
-            <textarea
-              value={uraian}
-              onChange={(e) => setUraian(e.target.value)}
-              rows={6}
-              className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:border-[#1B7340] focus:outline-none focus:ring-1 focus:ring-[#1B7340]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-              Upload Foto (maks 3, dikompres otomatis)
-            </label>
-            <div className="flex flex-wrap gap-3">
-              {photos.map((photo, idx) => (
-                <div
-                  key={idx}
-                  className="relative h-24 w-24 overflow-hidden rounded-lg border border-gray-200"
-                >
-                  <img
-                    src={photo.previewUrl}
-                    alt={`Foto ${idx + 1}`}
-                    className="h-full w-full object-cover"
-                  />
-                  <button
-                    onClick={() => removePhoto(idx)}
-                    className="absolute right-1 top-1 rounded-full bg-red-600 p-1 text-white shadow-sm"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-              {photos.length < 3 && (
-                <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-400 transition hover:border-[#1B7340] hover:text-[#1B7340]">
-                  {compressing ? (
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                  ) : (
-                    <>
-                      <ImagePlus className="h-6 w-6" />
-                      <span className="text-[10px]">Tambah</span>
-                    </>
-                  )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleFileSelect}
-                    className="hidden"
-                    disabled={compressing}
-                  />
-                </label>
-              )}
-            </div>
-          </div>
-
-          {error && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1B7340] to-[#155730] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-[#155730] hover:to-[#1B7340] disabled:opacity-60 active:scale-[0.99]"
-            >
-              {saving ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Save className="h-5 w-5" />
-              )}
-              {saving ? 'Menyimpan...' : 'Simpan Laporan'}
-            </button>
-            <button
-              onClick={handleReset}
-              disabled={saving}
-              className="flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
-            >
-              <X className="h-5 w-5" /> Ulang
-            </button>
-          </div>
-        </div>
-      )}
+function Field({ label, required, hint, children }: { label: string; required?: boolean; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="mb-1.5 flex items-baseline justify-between">
+        <span className="text-sm font-semibold text-gray-800">{label}{required && <span className="text-red-600"> *</span>}</span>
+        {hint && <span className="text-xs text-gray-400">{hint}</span>}
+      </label>
+      {children}
     </div>
   );
 }
